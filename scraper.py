@@ -1,4 +1,7 @@
 import re
+import requests
+
+from lxml import html
 from urllib.parse import urlparse
 
 def scraper(url, resp):
@@ -15,6 +18,16 @@ def extract_next_links(url, resp):
     #         resp.raw_response.url: the url, again
     #         resp.raw_response.content: the content of the page!
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
+    
+    # write code to check the response code first from resp
+
+    # Get the content from the response
+    tree = html.fromstring(resp.content)
+
+    # Extract elements using XPath
+    titles = tree.xpath('//h1/text()')  # Get all <h1> text
+    links = tree.xpath('//a/@href')     # Get all link URLs
+
     return list()
 
 def is_valid(url):
