@@ -20,18 +20,39 @@ def extract_next_links(url, resp):
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
     
     # write code to check the response code first from resp
+    if resp.status != 200 or resp.raw_response is None: 
+        return[] 
 
+    # check for empty or very large content 
+    if len(resp.raw_response.content) == 0: 
+        return []
+    if len(resp.raw_response.content) > 10_000_000:
+        return [] 
 
     # Get the content from the response
     tree = html.fromstring(resp.raw_response.content)
+
+    #check for information content 
+    raw_text = tree.text_content() 
+    words = [] 
+    for w in raw_text.lower().split():
+        if w.isalpha(): 
+            words.append(w)
+    if len(words) < 100:
+        return []
 
     # Extract elements using XPath
     titles = tree.xpath('//h1/text()')  # Get all <h1> text
     links = tree.xpath('//a/@href')     # Get all link URLs
 
     # Defragmentation should be done here
+    links = []
+    for link in raw_links: 
+            absolute = urljoin(url, link)
+            defragmented = absolute.split('#')[0]
+            links.append(Defragmentation)
 
-    return list()
+    return links 
 
 def is_valid(url):
     # Decide whether to crawl this url or not. 
