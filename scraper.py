@@ -20,49 +20,42 @@ def extract_next_links(url, resp):
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
     
     # write code to check the response code first from resp
+    if resp.status != 200 or resp.raw_response is None: 
+        return[] 
 
     links = []
     
     if resp.status != 200:
         print(f"For:{url}\nResponse Code:{resp.status}\n")
         return
-    
+
+    # check for empty or very large content 
+    if len(resp.raw_response.content) == 0: 
+        return links
+    if len(resp.raw_response.content) > 10_000_000:
+        return links 
+
     # Get the content from the response
     tree = html.fromstring(resp.content)
 
-    # Extract elements using XPath
-    text = tree.xpath('//body/text()')  # Get all <h1> text
-
-    if length(text) < 100:
+    #check for information content 
+    raw_text = tree.text_content() 
+    words = [] 
+    for w in raw_text.lower().split():
+        if w.isalpha(): 
+            words.append(w)
+    if len(words) < 100:
         return links
-    links = tree.xpath('//a/@href')     # Get all link URLs
+
+    raw_links = tree.xpath('//a/@href')     # Get all link URLs
 
     # Defragmentation should be done here
-    
-    nw_links = list()
-    for edit_link in links:
-        loc = edit_link.find('#')
-        if loc > -1:
-            # Test if the fragment is for the same webpage
-            if loc == 0:
-                continue
+    for link in raw_links:
+        absolute = urljoin(url, link)
+        defragmented = absolute.split('#')[0]
+        links.append(defragmented)
 
-            edit_link = edit_link[0:loc]
-
-        # things like mailto: will still be identifiable
-        edit_link = urljoin(url, edit_link)
-
-        nw_links.append(edit_link)
-    
-    return nw_links
-
-    # if we want to just ignore them instead
-    # for check_link in links:
-    #     #check claude for how to filter out urls from href
-    #     if check_link.find('#'):
-    #         links.remove(check_link)
-
-    # return links
+    return links
 
 def is_valid(url):
     # Decide whether to crawl this url or not. 
