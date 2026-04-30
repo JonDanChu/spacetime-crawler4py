@@ -1,8 +1,21 @@
 import re
-import requests
+import time
+import configparser
 
 from lxml import html
 from urllib.parse import urlparse, urljoin
+
+from collections import defaultdict
+
+prev_domain = ""
+link_set = set() # Use this for the time being to identify unique urls that we have checked out
+
+trap = defaultdict(int) # key - tuple (domain,path) key - number of accesses
+TRAP_THRESHOLD = 5
+
+config = configparser.ConfigParser()
+config.read('config.ini')
+DELAY = float(config['CRAWLER']['POLITENESS'])
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
@@ -19,15 +32,20 @@ def extract_next_links(url, resp):
     #         resp.raw_response.content: the content of the page!
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
     
+    # politness break
+    # need to make more specific for each domain later
+    time.sleep(DELAY)
+
     # write code to check the response code first from resp
-    if resp.status != 200 or resp.raw_response is None: 
+    if resp.raw_response is None: 
         return[] 
 
     links = []
     
     if resp.status != 200:
-        print(f"For:{url}\nResponse Code:{resp.status}\n")
-        return
+        print(f"For:{url}\nResponse Code:{resp.status}\nError:{resp.error}")
+
+        return links
 
     # check for empty or very large content 
     if len(resp.raw_response.content) == 0: 
@@ -36,7 +54,11 @@ def extract_next_links(url, resp):
         return links 
 
     # Get the content from the response
-    tree = html.fromstring(resp.content)
+    tree = html.fromstring(resp.raw_response.content)
+
+    # to check for traps
+    parsed = urlparse(url)
+    key = (parsed.netloc, parsed.path)
 
     #check for information content 
     raw_text = tree.text_content() 
@@ -46,6 +68,8 @@ def extract_next_links(url, resp):
             words.append(w)
     if len(words) < 100:
         return links
+    else:
+        trap[key] = 0
 
     raw_links = tree.xpath('//a/@href')     # Get all link URLs
 
@@ -53,7 +77,19 @@ def extract_next_links(url, resp):
     for link in raw_links:
         absolute = urljoin(url, link)
         defragmented = absolute.split('#')[0]
-        links.append(defragmented)
+
+        parsed = urlparse(defragmented)
+
+        key = (parsed.netloc, parsed.path)
+
+        trap[key] += 1
+
+        if trap[key] > TRAP_THRESHOLD:
+            continue
+        
+        if defragmented not in link_set:
+            links.append(defragmented)
+            link_set.add(defragmented)
 
     return links
 
@@ -68,11 +104,11 @@ def is_valid(url):
             return False
         
         if not re.match(
-            r".*\.(ics\.uci\.edu/|cs\.uci\.edu/|informatics\.uci\.edu/|stat\.uci\.edu/)$",
+            r"(.*\.)?(ics\.uci\.edu|cs\.uci\.edu|informatics\.uci\.edu|stat\.uci\.edu)$",
             parsed.hostname.lower()):
             return False
         
-        if not re.match(
+        if re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
             + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf"
@@ -83,7 +119,6 @@ def is_valid(url):
             + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower()):
             return False
         
-
         return True
 
     except TypeError:
