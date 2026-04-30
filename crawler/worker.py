@@ -1,13 +1,18 @@
-from threading import Thread
+from threading import Lock, Thread
 
 from inspect import getsource
 from utils.download import download
 from utils import get_logger
 import scraper
 import time
+from urllib.parse import urlparse
 
 
 class Worker(Thread):
+    # Shared across workers so politeness is enforced per host, not per thread.
+    politeness_lock = Lock()
+    next_request_time = {}
+
     def __init__(self, worker_id, config, frontier):
         self.logger = get_logger(f"Worker-{worker_id}", "Worker")
         self.config = config
@@ -16,6 +21,23 @@ class Worker(Thread):
         assert {getsource(scraper).find(req) for req in {"from requests import", "import requests"}} == {-1}, "Do not use requests in scraper.py"
         assert {getsource(scraper).find(req) for req in {"from urllib.request import", "import urllib.request"}} == {-1}, "Do not use urllib.request in scraper.py"
         super().__init__(daemon=True)
+
+    def wait_for_host(self, url):
+        # Enforce politeness by ensuring that we wait at least self.config.time_delay seconds between requests to the same host.
+        host = urlparse(url).hostname
+        if not host:
+            return
+
+        while True:
+            with Worker.politeness_lock:
+                now = time.monotonic()
+                allowed_at = Worker.next_request_time.get(host, now)
+                if now >= allowed_at:
+                    # Reserve the next allowed slot before releasing the lock.
+                    Worker.next_request_time[host] = now + self.config.time_delay
+                    return
+                wait_time = allowed_at - now
+            time.sleep(wait_time)
         
     def run(self):
         while True:
@@ -23,6 +45,7 @@ class Worker(Thread):
             if not tbd_url:
                 self.logger.info("Frontier is empty. Stopping Crawler.")
                 break
+            self.wait_for_host(tbd_url)
             resp = download(tbd_url, self.config, self.logger)
             self.logger.info(
                 f"Downloaded {tbd_url}, status <{resp.status}>, "
@@ -31,4 +54,3 @@ class Worker(Thread):
             for scraped_url in scraped_urls:
                 self.frontier.add_url(scraped_url)
             self.frontier.mark_url_complete(tbd_url)
-            time.sleep(self.config.time_delay)

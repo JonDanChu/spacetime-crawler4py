@@ -1,12 +1,23 @@
 import re
-import requests
+from threading import Lock
 
 from lxml import html
-from urllib.parse import urlparse, urljoin
+from urllib.parse import parse_qsl, urlparse, urljoin, urlunparse
+
+TRAP_LOCK = Lock()
+SEEN_TRAP_PATTERNS = {}
+SEEN_TRAP_URLS = set()
+
+ALLOWED_HOSTS = (
+    "ics.uci.edu",
+    "cs.uci.edu",
+    "informatics.uci.edu",
+    "stat.uci.edu",
+)
 
 def scraper(url, resp):
     links = extract_next_links(url, resp)
-    return [link for link in links if is_valid(link)]
+    return [link for link in links if is_valid(link) and not is_trap(link)]
 
 def extract_next_links(url, resp):
     # Implementation required.
@@ -34,11 +45,17 @@ def extract_next_links(url, resp):
         return links
     if len(resp.raw_response.content) > 10_000_000:
         return links 
+    # check for content type, only parse html pages
+    if "html" not in resp.raw_response.headers.get("Content-Type", "").lower():
+        return links
 
     # Get the content from the response
-    tree = html.fromstring(resp.content)
+    try:
+        tree = html.fromstring(resp.raw_response.content)
+    except (ValueError, TypeError):
+        return links
 
-    #check for information content 
+    # Check for information content 
     raw_text = tree.text_content() 
     words = [] 
     for w in raw_text.lower().split():
@@ -48,14 +65,94 @@ def extract_next_links(url, resp):
         return links
 
     raw_links = tree.xpath('//a/@href')     # Get all link URLs
+    seen_links = set()
 
-    # Defragmentation should be done here
     for link in raw_links:
-        absolute = urljoin(url, link)
-        defragmented = absolute.split('#')[0]
-        links.append(defragmented)
+        normalized = normalize_link(resp.raw_response.url or url, link)
+        if normalized and normalized not in seen_links:
+            seen_links.add(normalized)
+            links.append(normalized)
 
     return links
+
+def normalize_link(base_url, link):
+    # Normalize extracted links so the frontier does not fill up with
+    # fragments, duplicate slashes, or tracking-only query strings.
+    absolute = urljoin(base_url, link).split("#")[0]
+    parsed = urlparse(absolute)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return None
+
+    # Remove duplicate slashes and trailing slashes.
+    path = parsed.path or "/"
+    path = re.sub(r"/{2,}", "/", path)
+    if path != "/":
+        path = path.rstrip("/")
+
+    # Lowercase the scheme and hostname, but keep the path and query case-sensitive.
+    return urlunparse((
+        parsed.scheme.lower(),
+        parsed.hostname.lower(),
+        path,
+        "",
+        parsed.query,
+        "",
+    ))
+
+def is_trap(url):
+    parsed = urlparse(url)
+    path_parts = [part for part in parsed.path.split("/") if part]
+    query_parts = parse_qsl(parsed.query, keep_blank_values = False)
+    query_keys = [key.lower() for key, _ in query_parts]
+    url_length = len(url)
+    path_depth = len(path_parts)
+    query_count = len(query_parts)
+    unique_query_count = len(set(query_keys))
+    numeric_part_count = 0
+    repeated_part_count = 0
+
+    # Count repeated numeric parts in the path.
+    for part in path_parts:
+        if part.isdigit():
+            numeric_part_count += 1
+
+    # Count the maximum number of times any single part is repeated in the path.
+    for part in set(path_parts):
+        repeated_part_count = max(repeated_part_count, path_parts.count(part))
+
+    # Check for common crawler traps.
+    if url_length > 2000:
+        return True
+    if path_depth > 12:
+        return True
+    if query_count > 8:
+        return True
+    if query_count != unique_query_count:
+        return True
+    if numeric_part_count > 4:
+        return True
+    if repeated_part_count > 3:
+        return True
+
+    # Create a trap key that strips away variable parts of the URL
+    trap_key = (
+        parsed.hostname.lower(),
+        tuple(re.sub(r"\d+", "{num}", part.lower()) for part in path_parts),
+        tuple(sorted(query_keys)),
+    )
+
+    # If we keep seeing new URLs with the same shape, it is usually a calendar,
+    # faceted search, or session-style infinite trap.
+    with TRAP_LOCK:
+        if url in SEEN_TRAP_URLS:
+            count = SEEN_TRAP_PATTERNS.get(trap_key, 0)
+        else:
+            # Only count genuinely new URLs toward the trap-pattern limit.
+            SEEN_TRAP_URLS.add(url)
+            count = SEEN_TRAP_PATTERNS.get(trap_key, 0) + 1
+            SEEN_TRAP_PATTERNS[trap_key] = count
+
+    return count > 100
 
 def is_valid(url):
     # Decide whether to crawl this url or not. 
@@ -64,15 +161,14 @@ def is_valid(url):
 
     try:
         parsed = urlparse(url)
-        if parsed.scheme not in set(["http", "https"]):
+        if parsed.scheme not in set(["http", "https"]) or not parsed.hostname:
+            return False
+
+        host = parsed.hostname.lower()
+        if not any(host == allowed or host.endswith("." + allowed) for allowed in ALLOWED_HOSTS):
             return False
         
-        if not re.match(
-            r".*\.(ics\.uci\.edu/|cs\.uci\.edu/|informatics\.uci\.edu/|stat\.uci\.edu/)$",
-            parsed.hostname.lower()):
-            return False
-        
-        if not re.match(
+        if re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
             + r"|wav|avi|mov|mpeg|ram|m4v|mkv|ogg|ogv|pdf"
@@ -82,7 +178,6 @@ def is_valid(url):
             + r"|thmx|mso|arff|rtf|jar|csv"
             + r"|rm|smil|wmv|swf|wma|zip|rar|gz)$", parsed.path.lower()):
             return False
-        
 
         return True
 
