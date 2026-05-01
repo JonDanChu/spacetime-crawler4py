@@ -76,6 +76,7 @@ def computeWordFrequencies(token_list: list[str], db):
     assignment 2
     """
     for token in token_list:
+        token = token.lower()
         db[token] = str(int(db.get(token, 0)) + 1)
 
 

@@ -2,6 +2,8 @@ import re
 from threading import Lock
 import tokenizer
 import dbm
+import json
+from datetime import datetime
 
 from lxml import html
 from urllib.parse import parse_qsl, urlparse, urljoin, urlunparse
@@ -42,6 +44,11 @@ def scraper(url, resp):
     except (ValueError, TypeError):
         return links
 
+    for element in tree.xpath('//script | //style'):
+        parent = element.getparent()
+        if parent is not None:
+            parent.remove(element)
+
     # Check for information content 
     raw_text = tree.text_content() 
     words = [] 
@@ -51,17 +58,24 @@ def scraper(url, resp):
     if len(words) < 100:
         return links
 
+    token_list = []
 
     # Store word frequencies
     with dbm.open('data/word_frequencies', 'c') as db:  # 'c' = create or open
         # token_list = tokenizer.tokenizeHelper(resp.raw_response.text)
-        print('RAW TEXT')
-        print(raw_text)
         token_list = re.findall(r'\w+', raw_text)
-        print('TOKEN_LIST')
+        print(raw_text)
         print(token_list)
         tokenizer.computeWordFrequencies(token_list, db)
 
+    # Add site data
+    with open('data/site-data.jsonl', 'a') as f:
+        record = {
+            "url": url,
+            "word_count": len(token_list),
+            "time_added": datetime.now().isoformat()
+        }
+        f.write(json.dumps(record) + '\n')
 
     links = extract_next_links(url, resp, tree)
     return [link for link  in links if is_valid(link) and not is_trap(link)]
@@ -78,6 +92,8 @@ def extract_next_links(url, resp, tree):
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
     
     # write code to check the response code first from resp
+    links = []
+    
     raw_links = tree.xpath('//a/@href')     # Get all link URLs
     seen_links = set()
 
