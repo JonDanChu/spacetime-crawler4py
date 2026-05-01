@@ -3,7 +3,7 @@ import time
 import configparser
 
 from lxml import html
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse, urljoin, urldefrag
 
 from collections import defaultdict
 
@@ -54,7 +54,11 @@ def extract_next_links(url, resp):
         return links 
 
     # Get the content from the response
-    tree = html.fromstring(resp.raw_response.content)
+    try:
+        tree = html.fromstring(resp.raw_response.content)
+    except Exception as e:
+        print(f"Failed to parse {url}: {e}")
+        return links
 
     # to check for traps
     parsed = urlparse(url)
@@ -76,7 +80,7 @@ def extract_next_links(url, resp):
     # Defragmentation should be done here
     for link in raw_links:
         absolute = urljoin(url, link)
-        defragmented = absolute.split('#')[0]
+        defragmented = urldefrag(absolute)[0]
 
         parsed = urlparse(defragmented)
 
