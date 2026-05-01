@@ -40,7 +40,10 @@ class Worker(Thread):
             time.sleep(wait_time)
         
     def run(self):
+        i = 0
         while True:
+            i += 1
+
             tbd_url = self.frontier.get_tbd_url()
             if not tbd_url:
                 self.logger.info("Frontier is empty. Stopping Crawler.")
@@ -54,3 +57,8 @@ class Worker(Thread):
             for scraped_url in scraped_urls:
                 self.frontier.add_url(scraped_url)
             self.frontier.mark_url_complete(tbd_url)
+
+            with open(f"output{i}.html", "w") as f:
+                f.write(resp.raw_response.text)
+            
+            if i == 1: break

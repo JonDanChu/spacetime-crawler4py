@@ -1,5 +1,7 @@
 import re
 from threading import Lock
+import tokenizer
+import dbm
 
 from lxml import html
 from urllib.parse import parse_qsl, urlparse, urljoin, urlunparse
@@ -16,29 +18,14 @@ ALLOWED_HOSTS = (
 )
 
 def scraper(url, resp):
-    links = extract_next_links(url, resp)
-    return [link for link in links if is_valid(link) and not is_trap(link)]
-
-def extract_next_links(url, resp):
-    # Implementation required.
-    # url: the URL that was used to get the page
-    # resp.url: the actual url of the page
-    # resp.status: the status code returned by the server. 200 is OK, you got the page. Other numbers mean that there was some kind of problem.
-    # resp.error: when status is not 200, you can check the error here, if needed.
-    # resp.raw_response: this is where the page actually is. More specifically, the raw_response has two parts:
-    #         resp.raw_response.url: the url, again
-    #         resp.raw_response.content: the content of the page!
-    # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
-    
-    # write code to check the response code first from resp
     if resp.status != 200 or resp.raw_response is None: 
-        return[] 
+        return []
 
     links = []
     
     if resp.status != 200:
         print(f"For:{url}\nResponse Code:{resp.status}\n")
-        return
+        return []
 
     # check for empty or very large content 
     if len(resp.raw_response.content) == 0: 
@@ -64,6 +51,33 @@ def extract_next_links(url, resp):
     if len(words) < 100:
         return links
 
+
+    # Store word frequencies
+    with dbm.open('data/word_frequencies', 'c') as db:  # 'c' = create or open
+        # token_list = tokenizer.tokenizeHelper(resp.raw_response.text)
+        print('RAW TEXT')
+        print(raw_text)
+        token_list = re.findall(r'\w+', raw_text)
+        print('TOKEN_LIST')
+        print(token_list)
+        tokenizer.computeWordFrequencies(token_list, db)
+
+
+    links = extract_next_links(url, resp, tree)
+    return [link for link  in links if is_valid(link) and not is_trap(link)]
+
+def extract_next_links(url, resp, tree):
+    # Implementation required.
+    # url: the URL that was used to get the page
+    # resp.url: the actual url of the page
+    # resp.status: the status code returned by the server. 200 is OK, you got the page. Other numbers mean that there was some kind of problem.
+    # resp.error: when status is not 200, you can check the error here, if needed.
+    # resp.raw_response: this is where the page actually is. More specifically, the raw_response has two parts:
+    #         resp.raw_response.url: the url, again
+    #         resp.raw_response.content: the content of the page!
+    # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
+    
+    # write code to check the response code first from resp
     raw_links = tree.xpath('//a/@href')     # Get all link URLs
     seen_links = set()
 
