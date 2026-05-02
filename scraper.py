@@ -59,9 +59,10 @@ def extract_next_links(url, resp):
         return links
 
     raw_links = tree.xpath('//a/@href')     # Get all link URLs
+    base_url = resp.url or url
 
     for link in raw_links:
-        absolute = urljoin(url, link)
+        absolute = urljoin(base_url, link)
         defragmented, _ = urldefrag(absolute)
         links.append(defragmented)
 
@@ -103,19 +104,21 @@ def is_trap(url):
         return True
 
     # Create a trap key that strips away variable parts of the URL
-    # ( hostname, path pattern)
+    # (hostname, path pattern, query keys)
     trap_key = (
         parsed.hostname.lower(),
         tuple(re.sub(r"\d+", "{num}", part.lower()) for part in path_parts),
+        tuple(sorted(set(query_keys))),
     )
 
     # If we keep seeing new URLs with the same shape, it is usually a calendar,
     # faceted search, or session-style infinite trap.
     with TRAP_LOCK:
         if url in SEEN_TRAP_URLS:
+            # This exact URL was already processed, don't increment the pattern count.
             count = SEEN_TRAP_PATTERNS.get(trap_key, 0)
         else:
-            # Only count genuinely new URLs toward the trap-pattern limit.
+            # First time seeing this specific URL, record it and increment the count for its pattern.
             SEEN_TRAP_URLS.add(url)
             count = SEEN_TRAP_PATTERNS.get(trap_key, 0) + 1
             SEEN_TRAP_PATTERNS[trap_key] = count
