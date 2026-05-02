@@ -37,6 +37,8 @@ def scraper(url, resp):
     except Exception as e:
         print(f"Failed to parse {url}: {e}")
         return links
+    
+    raw_links = tree.xpath('//a/@href')     # Get all link URLs
 
     for element in tree.xpath('//script | //style'):
         parent = element.getparent()
@@ -58,8 +60,6 @@ def scraper(url, resp):
     with dbm.open('data/word_frequencies', 'c') as db:  # 'c' = create or open
         # token_list = tokenizer.tokenizeHelper(resp.raw_response.text)
         token_list = re.findall(r'\w+', raw_text)
-        print(raw_text)
-        print(token_list)
         tokenizer.computeWordFrequencies(token_list, db)
 
     # Add site data
@@ -71,10 +71,10 @@ def scraper(url, resp):
         }
         f.write(json.dumps(record) + '\n')
 
-    links = extract_next_links(url, resp, tree)
+    links = extract_next_links(url, resp, raw_links)
     return [link for link  in links if is_valid(link) and not is_trap(link)]
 
-def extract_next_links(url, resp, tree):
+def extract_next_links(url, resp, raw_links):
     # Implementation required.
     # url: the URL that was used to get the page
     # resp.url: the actual url of the page
@@ -87,8 +87,6 @@ def extract_next_links(url, resp, tree):
     
     # write code to check the response code first from resp
     links = []
-    
-    raw_links = tree.xpath('//a/@href')     # Get all link URLs
 
     for link in raw_links:
         absolute = urljoin(url, link)
