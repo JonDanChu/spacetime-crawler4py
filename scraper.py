@@ -1,5 +1,9 @@
 import re
 from threading import Lock
+import tokenizer
+import dbm
+import json
+from datetime import datetime
 
 from lxml import html
 from urllib.parse import parse_qsl, urlparse, urljoin, urldefrag
@@ -9,23 +13,8 @@ SEEN_TRAP_PATTERNS = {}
 SEEN_TRAP_URLS = set()
 
 def scraper(url, resp):
-    links = extract_next_links(url, resp)
-    return [link for link in links if is_valid(link) and not is_trap(link)]
-
-def extract_next_links(url, resp):
-    # Implementation required.
-    # url: the URL that was used to get the page
-    # resp.url: the actual url of the page
-    # resp.status: the status code returned by the server. 200 is OK, you got the page. Other numbers mean that there was some kind of problem.
-    # resp.error: when status is not 200, you can check the error here, if needed.
-    # resp.raw_response: this is where the page actually is. More specifically, the raw_response has two parts:
-    #         resp.raw_response.url: the url, again
-    #         resp.raw_response.content: the content of the page!
-    # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
-
-    # write code to check the response code first from resp
     if resp.raw_response is None: 
-        return[] 
+        return []
 
     links = []
     
@@ -48,6 +37,13 @@ def extract_next_links(url, resp):
     except Exception as e:
         print(f"Failed to parse {url}: {e}")
         return links
+    
+    raw_links = tree.xpath('//a/@href')     # Get all link URLs
+
+    for element in tree.xpath('//script | //style'):
+        parent = element.getparent()
+        if parent is not None:
+            parent.remove(element)
 
     # Check for information content 
     raw_text = tree.text_content() 
@@ -58,10 +54,43 @@ def extract_next_links(url, resp):
     if len(words) < 100:
         return links
 
-    raw_links = tree.xpath('//a/@href')     # Get all link URLs
+    token_list = []
+
+    # Store word frequencies
+    with dbm.open('data/word_frequencies', 'c') as db:  # 'c' = create or open
+        # token_list = tokenizer.tokenizeHelper(resp.raw_response.text)
+        token_list = re.findall(r'\w+', raw_text)
+        tokenizer.computeWordFrequencies(token_list, db)
+
+    # Add site data
+    with open('data/site-data.jsonl', 'a') as f:
+        record = {
+            "url": url,
+            "word_count": len(token_list),
+            "time_added": datetime.now().isoformat()
+        }
+        f.write(json.dumps(record) + '\n')
+
+    links = extract_next_links(url, resp, raw_links)
+    return [link for link  in links if is_valid(link) and not is_trap(link)]
+
+def extract_next_links(url, resp, raw_links):
+    # Implementation required.
+    # url: the URL that was used to get the page
+    # resp.url: the actual url of the page
+    # resp.status: the status code returned by the server. 200 is OK, you got the page. Other numbers mean that there was some kind of problem.
+    # resp.error: when status is not 200, you can check the error here, if needed.
+    # resp.raw_response: this is where the page actually is. More specifically, the raw_response has two parts:
+    #         resp.raw_response.url: the url, again
+    #         resp.raw_response.content: the content of the page!
+    # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
+    
+    # write code to check the response code first from resp
+    links = []
+    base_url = resp.url or url
 
     for link in raw_links:
-        absolute = urljoin(url, link)
+        absolute = urljoin(base_url, link)
         defragmented, _ = urldefrag(absolute)
         links.append(defragmented)
 
@@ -103,19 +132,21 @@ def is_trap(url):
         return True
 
     # Create a trap key that strips away variable parts of the URL
-    # ( hostname, path pattern)
+    # (hostname, path pattern, query keys)
     trap_key = (
         parsed.hostname.lower(),
         tuple(re.sub(r"\d+", "{num}", part.lower()) for part in path_parts),
+        tuple(sorted(set(query_keys))),
     )
 
     # If we keep seeing new URLs with the same shape, it is usually a calendar,
     # faceted search, or session-style infinite trap.
     with TRAP_LOCK:
         if url in SEEN_TRAP_URLS:
+            # This exact URL was already processed, don't increment the pattern count.
             count = SEEN_TRAP_PATTERNS.get(trap_key, 0)
         else:
-            # Only count genuinely new URLs toward the trap-pattern limit.
+            # First time seeing this specific URL, record it and increment the count for its pattern.
             SEEN_TRAP_URLS.add(url)
             count = SEEN_TRAP_PATTERNS.get(trap_key, 0) + 1
             SEEN_TRAP_PATTERNS[trap_key] = count
