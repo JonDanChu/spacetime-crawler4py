@@ -163,6 +163,11 @@ def is_valid(url):
             return False
         
         if not re.match(
+            r"(grape\.ics\.uci\.edu)$",
+            parsed.hostname.lower()):
+            return False
+        
+        if not re.match(
             r"(.*\.)?(ics\.uci\.edu|cs\.uci\.edu|informatics\.uci\.edu|stat\.uci\.edu)$",
             parsed.hostname.lower()):
             return False
