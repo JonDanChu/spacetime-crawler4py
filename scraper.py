@@ -162,7 +162,7 @@ def is_valid(url):
         if parsed.scheme not in set(["http", "https"]) or not parsed.hostname:
             return False
         
-        if not re.match(
+        if re.match(
             r"(grape\.ics\.uci\.edu)$",
             parsed.hostname.lower()):
             return False
