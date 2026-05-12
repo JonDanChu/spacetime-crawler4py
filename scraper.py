@@ -12,6 +12,10 @@ TRAP_LOCK = Lock()
 SEEN_TRAP_PATTERNS = {}
 SEEN_TRAP_URLS = set()
 
+BLOCKED_DOMAINS = {
+    'grape.ics.uci.edu'
+}
+
 def scraper(url, resp):
     if resp.raw_response is None: 
         return []
@@ -163,9 +167,7 @@ def is_valid(url):
         if parsed.scheme not in set(["http", "https"]) or not parsed.hostname:
             return False
         
-        if not re.match(
-            r"(grape\.ics\.uci\.edu)$",
-            parsed.hostname.lower()):
+        if parsed.hostname.lower() in BLOCKED_DOMAINS:
             return False
         
         if not re.match(
