@@ -1,7 +1,6 @@
 import re
 import dbm
 import json
-import os
 from datetime import datetime
 from threading import Lock
 
@@ -15,8 +14,10 @@ ANALYSIS_LOCK = Lock()
 SEEN_TRAP_PATTERNS = {}
 SEEN_TRAP_URLS = set()
 
-BLOCKED_DOMAINS = {
-    'grape.ics.uci.edu'
+BLOCKED_WEBSITES = {
+    'grape.ics.uci.edu',
+    'wics.ics.uci.edu/events',
+    'isg.ics.uci.edu/events/month',
 }
 
 def scraper(url, resp):
@@ -112,7 +113,7 @@ def is_trap(url):
     repeated_part_count = 0
 
     # Check for common crawler traps.
-    if url_length > 2000:
+    if url_length > 1000:
         return True
     if path_depth > 12:
         return True
@@ -121,6 +122,7 @@ def is_trap(url):
     if query_count != unique_query_count:
         return True
     
+    # URLs with doku.php and queries are traps
     if "doku.php" in path_parts and query_parts:
         return True
 
@@ -168,9 +170,16 @@ def is_valid(url):
         parsed = urlparse(url)
         if parsed.scheme not in set(["http", "https"]) or not parsed.hostname:
             return False
-        
-        if parsed.hostname.lower() in BLOCKED_DOMAINS:
-            return False
+
+        # Normalize the hostname and path to check it against blocked websites
+        hostname = parsed.hostname.lower()
+        path = parsed.path.lower()
+        website = f"{hostname}{path}"
+
+        # Check if the URL belongs to a blocked website or its subpath
+        for blocked in BLOCKED_WEBSITES:
+            if website == blocked or website.startswith(f"{blocked}/"):
+                return False
         
         if not re.match(
             r"(.*\.)?(ics\.uci\.edu|cs\.uci\.edu|informatics\.uci\.edu|stat\.uci\.edu)$",
