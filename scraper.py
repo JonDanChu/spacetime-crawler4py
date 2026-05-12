@@ -121,6 +121,9 @@ def is_trap(url):
     if query_count != unique_query_count:
         return True
     
+    if path_parts.contains("doku.php") and query_parts:
+        return True
+
     # Count repeated numeric parts in the path.
     for part in path_parts:
         if part.isdigit():
