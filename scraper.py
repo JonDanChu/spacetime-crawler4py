@@ -20,6 +20,13 @@ BLOCKED_WEBSITES = {
     'isg.ics.uci.edu/events/month',
 }
 
+ALLOWED_ISG = {
+    "https://isg.ics.uci.edu/events/list/",
+    "https://isg.ics.uci.edu/events/list",
+    "https://isg.ics.uci.edu/events/list/?eventDisplay=past",
+    "https://isg.ics.uci.edu/events/list/page/2/?eventDisplay=past",
+}
+
 def scraper(url, resp):
     if resp.raw_response is None: 
         return []
@@ -122,6 +129,13 @@ def is_trap(url):
     if query_count != unique_query_count:
         return True
     
+    # Block isg events list, filter by page
+    if "https://isg.ics.uci.edu/events/list/page" in url:
+        return True
+
+    if "isg.ics.uci.edu/events/list" in url and url not in ALLOWED_ISG:
+        return True
+
     # URLs with doku.php and queries are traps
     if "doku.php" in path_parts and query_parts:
         return True
